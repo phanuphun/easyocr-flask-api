@@ -1,17 +1,23 @@
 from flask import Flask, request, jsonify
 import easyocr
 import base64
-import io
-from PIL import Image
-import numpy as np
-import cv2
 from config import Config
 from datetime import datetime
 import time
 
 app = Flask(__name__)
 app.config.from_object(Config)
- 
+PORT = 7757
+HOST= '0.0.0.0'
+
+import torch
+print(f'----------------------------------------------------------------------------')
+print(f'Is CUDA available? {torch.cuda.is_available()}')       # ควรได้ True
+print(f'----------------------------------------------------------------------------')
+
+# print(f'CUDA version: {torch.version.cuda}')
+# print(f'Number of GPUs: {torch.cuda.device_count()}')       # จำนวน GPU ที่ตรวจพบ
+# print(f'GPU name: {torch.cuda.get_device_name(0)}')   # ชื่อการ์ดจอ
 
 # Initialize EasyOCR reader with configurable languages
 
@@ -24,34 +30,29 @@ def health_check():
         'timestamp': datetime.now().astimezone().isoformat()
     }), 200
 
-@app.route('/api/v1/easy-ocr', methods=['POST'])
+@app.route('/api/v1/ocr', methods=['POST'])
 def ocr_process():
     try:
         data = request.get_json()
-        lang = data.get('lang', None)
+        langs = data.get('langs')
+        allowed = {'en', 'th'}
+        
         if not data or 'img' not in data:
             return jsonify(success=False, error='Missing img parameter'), 400
         
-        if lang == 'en':
-            langs = ['en']
-        elif lang == 'th':
-            langs = ['th']
-        else:
-            langs = ['en', 'th']
+        if not isinstance(langs, list):
+            return jsonify(success=False, error='langs must be a list'), 400
+        
+        if any(lang not in allowed for lang in langs):
+            return jsonify(success=False, error='Invalid language code'), 400
 
         start_time = time.perf_counter()
         print(f"Processing OCR for languages: {langs}")
-        reader = easyocr.Reader(langs,True)
 
-        # Decode base64 เป็น bytes แล้วเปิดด้วย PIL
+        # ***
+        reader = easyocr.Reader(lang_list=langs, gpu=True)
         image_bytes = base64.b64decode(data['img'])
-        image = Image.open(io.BytesIO(image_bytes))
-        image_np = np.array(image)
-        if image_np.ndim == 3:
-            image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
-
-        # เรียก EasyOCR
-        results = reader.readtext(image_np)
+        results = reader.readtext(image_bytes)
 
         end_time = time.perf_counter()
         duration = end_time - start_time
@@ -82,4 +83,4 @@ def ocr_process():
 
 if __name__ == '__main__':
     print("Starting EasyOCR API...")
-    app.run(debug=True, port=7756)
+    app.run(debug=True, port=PORT , host=HOST)
